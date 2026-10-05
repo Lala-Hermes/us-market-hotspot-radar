@@ -17,7 +17,7 @@ STATE=ROOT/'.state'
 ET=ZoneInfo('America/New_York')
 TAIPEI=ZoneInfo('Asia/Taipei')
 CAL=xcals.get_calendar('XNYS')
-TICKERS='SPY QQQ IWM DIA XLK XLF XLE XLV XLY XLP XLI XLB XLU XLRE XLC SOXX SMH IGV XBI IBB KRE XOP OIH ITA ARKK IBIT GLD TLT'.split()
+TICKERS='SPY QQQ IWM DIA XLK XLF XLE XLV XLY XLP XLI XLB XLU XLRE XLC SOXX SMH IGV XBI IBB KRE XOP OIH ITA ARKK IBIT GLD TLT USO'.split()
 EXPECTED_REMOTE='https://github.com/Lala-Hermes/us-market-hotspot-radar.git'
 
 
@@ -143,7 +143,7 @@ def scan(info,diagnostic=False,collector=None):
         end=datetime.fromisoformat(slot).astimezone(ET)
         try:
             with contextlib.redirect_stdout(sys.stderr):
-                result=collector(end,info)
+                result=collector(end,{**info,'diagnostic':diagnostic})
         except Exception as exc:
             result={'status':'blocked','candidates':[],'rows':[],'cross_signals':[],
                     'errors':[{'error':f'{type(exc).__name__}: {exc}'}],'gaps':['market collection failed']}
@@ -212,6 +212,15 @@ def render_quiet_report(info,result):
     lines.extend('- '+json.dumps(item,ensure_ascii=False) for item in signals)
     if not signals:
         lines.append('已取得資料未形成通過門檻的明顯跨市場訊號。')
+    for symbol,item in result.get('quotes',{}).items():
+        quote=item.get('quote',{})
+        label={'^VIX':'VIX','^TNX':'US10Y（美國10年期公債殖利率）'}.get(symbol,symbol)
+        if quote:
+            lines.append(f"- 報價採樣 {label}：{item.get('status')}；最新 {quote.get('price')} {quote.get('unit')}；來源時間 {quote.get('source_time')}；擷取 {quote.get('received_at')}；來源 {quote.get('source')}（延遲未確認）。")
+        else:
+            lines.append(f"- 報價採樣 {label}：{item.get('status')}；{item.get('reason','無有效快照')}。")
+    for change in result.get('quote_changes',{}).values():
+        lines.append('- 實際觀察報價變化：'+json.dumps(change,ensure_ascii=False))
     rows=result.get('rows',[])
     if isinstance(rows,dict):
         rows=list(rows.values())
@@ -224,7 +233,7 @@ def render_quiet_report(info,result):
         lines.append(f"資料覆蓋：{coverage.get('usable_count',0)}/{coverage.get('requested_count',len(TICKERS))} 檔有足夠完整分鐘、實際成交及來源時效。")
     if result.get('gaps'):
         lines.extend(['','資料限制：']+['- '+str(g) for g in result['gaps']])
-    lines.extend(['','來源：本機 Futu OpenD 24H 一分鐘歷史 K 線；價格和成交量使用上述精確窗口，未以全天快照代替。',
+    lines.extend(['','來源：本機 Futu OpenD 一分鐘歷史 K 線；VIX/US10Y 使用另列來源時間的查價快照配對（來源延遲未確認），未插入分鐘線或推算成交量。',
                   f"擷取時間：{result.get('scan_timestamp','未知')}；無確認異常，因此未搜尋新聞催化劑。"])
     return '\n'.join(lines)+'\n'
 

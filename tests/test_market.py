@@ -76,3 +76,9 @@ def test_cross_signals_require_valid_fresh_rows_and_note_unsupported_gaps():
     rows['QQQ']['status'] = 'insufficient'
     sig, _ = cross_signals(rows)
     assert not any(s.get('ticker') == 'QQQ' for s in sig)
+
+
+def test_uso_is_scanned_as_an_energy_etf_proxy():
+    from radar_market import CLUSTERS, TICKERS
+    assert 'USO' in TICKERS
+    assert 'USO' in CLUSTERS['oil_proxy']

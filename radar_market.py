@@ -6,13 +6,14 @@ import math
 from statistics import median
 import time
 from zoneinfo import ZoneInfo
+from pathlib import Path
 
 ET=ZoneInfo('America/New_York')
-TICKERS='SPY QQQ IWM DIA XLK XLF XLE XLV XLY XLP XLI XLB XLU XLRE XLC SOXX SMH IGV XBI IBB KRE XOP OIH ITA ARKK IBIT GLD TLT'.split()
+TICKERS='SPY QQQ IWM DIA XLK XLF XLE XLV XLY XLP XLI XLB XLU XLRE XLC SOXX SMH IGV XBI IBB KRE XOP OIH ITA ARKK IBIT GLD TLT USO'.split()
 BROAD={'SPY','QQQ','IWM','DIA'}
 CLUSTERS={
  'broad_market':['SPY','IWM','DIA'],'semiconductors':['SOXX','SMH'],
- 'energy':['XLE','XOP','OIH'],'biotechnology':['XBI','IBB'],
+ 'energy':['XLE','XOP','OIH'],'oil_proxy':['USO'],'biotechnology':['XBI','IBB'],
  'growth_risk':['QQQ','ARKK'],'technology':['XLK'],'software':['IGV'],
  'financials':['XLF','KRE'],'healthcare':['XLV'],'consumer_discretionary':['XLY'],
  'consumer_staples':['XLP'],'industrials':['XLI'],'materials':['XLB'],
@@ -28,7 +29,7 @@ CONSTITUENTS={
  'industrials':['GE','CAT','RTX'],'materials':['LIN','FCX','NEM'],
  'utilities':['NEE','SO','DUK'],'real_estate':['PLD','AMT','EQIX'],
  'communication_services':['META','GOOGL','NFLX'],'aerospace_defense':['RTX','LMT','NOC']}
-UNSUPPORTED=['VIX','美國公債殖利率','美元指數','原油現貨／期貨','Bitcoin現貨','選擇權活動']
+UNSUPPORTED=['VIX（quote sampling未提供有效資料）','美國公債殖利率（quote sampling未提供有效資料）','美元指數','原油現貨／期貨','Bitcoin現貨','選擇權活動']
 
 
 def _as_et(value):
@@ -174,6 +175,43 @@ def cross_signals(rows):
  return signals,[f'{t}未取得同窗口資料，未納入判斷' for t in UNSUPPORTED]
 
 
+def quote_cross_signals(changes):
+ signals=[]
+ for symbol,label,key,threshold,unit in (
+  ('^VIX','VIX','change_points',1.0,'index points'),
+  ('^TNX','US10Y','change_basis_points',3.0,'basis points')):
+  row=changes.get(symbol,{})
+  try: value=float(row.get(key))
+  except (TypeError,ValueError): continue
+  if not math.isfinite(value) or abs(value)<threshold:continue
+  signals.append({'type':'observed_quote_change','instrument':label,'change':value,'unit':unit,
+   'threshold':f'|change| >= {threshold} {unit} in observed ~10-minute pair',
+   'elapsed_seconds':row.get('elapsed_seconds'),'source':row.get('source'),
+   'source_time':row.get('source_time'),'previous_source_time':row.get('previous_source_time'),
+   'confidence':row.get('confidence','reduced; price-only observed quote change, not a forecast')})
+ return signals
+
+
+def sample_market_quotes(book, fetcher=None, diagnostic=False, now=None):
+ from radar_quotes import QuoteBook, fetch_yahoo_quote
+ fetcher=fetcher or fetch_yahoo_quote
+ book=book if isinstance(book,QuoteBook) else QuoteBook(book)
+ observations={}; changes={}
+ for symbol in ('^VIX','^TNX'):
+  try:
+   quote=fetcher(symbol)
+   if quote is None:
+    observations[symbol]={'status':'invalid','reason':'provider returned no verified snapshot metadata'}
+    continue
+   outcome=book.observe(quote,diagnostic=diagnostic,now=now)
+   status=outcome.get('status') if isinstance(outcome,dict) and outcome.get('status') in ('invalid','stale') else ('warmup' if outcome is None else 'observed')
+   observations[symbol]={'status':status,'quote':quote}
+   if isinstance(outcome,dict) and status=='observed':changes[symbol]=outcome
+  except Exception as exc:
+   observations[symbol]={'status':'error','reason':f'{type(exc).__name__}: {exc}'}
+ return observations,changes
+
+
 class RequestBudget:
  """At most 50 quote-history requests in a rolling 30-second window."""
  def __init__(self):self.calls=deque()
@@ -244,4 +282,17 @@ def collect(window_end,info):
   report['status']='blocked'; report['errors'].append({'error':f'Futu/OpenD unavailable: {type(exc).__name__}: {exc}'})
  finally:
   if ctx is not None:ctx.close()
+ observations,changes=sample_market_quotes(Path(__file__).resolve().parent/'.state'/'quotes.sqlite',
+  diagnostic=bool(info.get('diagnostic')))
+ report['quotes']=observations
+ report['quote_changes']=changes
+ if '^VIX' in changes:
+  report['gaps']=[g for g in report['gaps'] if 'VIX' not in g]
+ if '^TNX' in changes:
+  report['gaps']=[g for g in report['gaps'] if '公債殖利率' not in g]
+ report['cross_signals'].extend(quote_cross_signals(changes))
+ for symbol,item in observations.items():
+  if item.get('status')!='observed':
+   label='VIX' if symbol=='^VIX' else '美國10年期公債殖利率'
+   report['gaps'].append(f'{label}報價狀態：{item.get("status")}；{item.get("reason", "需等待兩筆有效且同源觀察") }')
  return report
