@@ -7,7 +7,7 @@
 - 本機 repo：`C:/Users/vivat/us-market-hotspot-radar`。
 - Python：`C:/Users/vivat/us-market-hotspot-radar/.venv/Scripts/python.exe`。
 - Pre-run `radar.py tick` 已完成日曆 gate／市場優先掃描，輸出 slot、window、ET交易日、不可變 snapshot 路徑與資料狀態。先讀回該精確 snapshot，不重跑全宇宙，不改窗口、不用事後現在時間取代它。
-- 若 wakeAgent=false / inactive，無需研究或發布，直接結束。若 tick 已成功自動發布，勿重複。
+- 若 wakeAgent=false / inactive，無需研究或發布，直接結束。tick 會自動發布沒有候選的簡短報告或明確的資料受阻報告，勿重複。存在明顯cross_signals而候選為空時，仍按實測跨市場異動調查，不強迫捏造個股熱點。
 - 若掃描受阻或重大資料不足，產生清楚的受阻報告，不稱「市場平靜」或硬湊熱點；不得把 API 錯誤當作無事件。
 - 診斷 snapshot 不能發布正式報告。禁止回填捏造歷史即時報告。
 - 四大指數ETF + 11板塊 + 13主題／跨市場代理合計28標的是最低價格掃描範圍。完成率依真正返回的資料計算，空序列、0成交、陳舊資料須披露。
