@@ -1,0 +1,4 @@
+futu-api==10.11.7108
+exchange-calendars==4.13.2
+tzdata==2026.5
+pytest==9.1.1
