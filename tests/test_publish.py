@@ -35,6 +35,24 @@ def publication_repo(tmp_path, monkeypatch):
     return root,remote,slot,report,scan
 
 
+@pytest.mark.skipif(__import__('os').name!='nt', reason='Windows background handle regression')
+def test_git_with_invalid_background_stdin_handle():
+    import ctypes
+    from ctypes import wintypes
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.GetStdHandle.argtypes=[wintypes.DWORD]
+    kernel.GetStdHandle.restype=wintypes.HANDLE
+    kernel.SetStdHandle.argtypes=[wintypes.DWORD,wintypes.HANDLE]
+    kernel.SetStdHandle.restype=wintypes.BOOL
+    stdin_id=wintypes.DWORD(-10)
+    original=kernel.GetStdHandle(stdin_id)
+    assert kernel.SetStdHandle(stdin_id,wintypes.HANDLE(-1))
+    try:
+        assert radar._git('rev-parse','--is-inside-work-tree').strip()==b'true'
+    finally:
+        assert kernel.SetStdHandle(stdin_id,original)
+
+
 def test_publish_accepts_markdown_and_verifies_remote(publication_repo):
     root,remote,slot,report,_=publication_repo
     result=radar.publish(slot,report)

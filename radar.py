@@ -157,7 +157,7 @@ def scan(info,diagnostic=False,collector=None):
 
 
 def _git(*args):
-    result=subprocess.run(['git',*args],cwd=ROOT,capture_output=True,timeout=60)
+    result=subprocess.run(['git',*args],cwd=ROOT,stdin=subprocess.DEVNULL,capture_output=True,timeout=60)
     if result.returncode:
         raise RuntimeError(f"git {args[0]} failed: {result.stderr.decode('utf-8',errors='replace').strip()}")
     return result.stdout
