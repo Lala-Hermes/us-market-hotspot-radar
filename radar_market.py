@@ -102,6 +102,17 @@ def _valid(row):
  return bool(row and row.get('status')=='ok' and row.get('return_10m_pct') is not None)
 
 
+def selection_conditions(row, name, floor=None):
+ """Single source of truth for the unchanged per-row anomaly gates."""
+ if floor is None:floor=.25 if row['ticker'] in BROAD else (.6 if name=='crypto' else .4)
+ history=[abs(x) for x in row.get('previous_3_10m_returns_pct',[]) if x is not None]
+ threshold=max(floor,2.5*median(history)) if history else floor
+ active=row.get('volume_10m',0)>=(10000 if row['ticker'] in BROAD else 5000) and row.get('traded_minutes',0)>=6
+ confirmed=((row.get('volume_ratio_10m') or 0)>=1.8 or abs(row.get('relative_spy_pp') or 0)>=.2 or abs(row.get('acceleration_pp') or 0)>=.25)
+ return {'threshold':threshold,'price_pass':abs(row['return_10m_pct'])>=threshold,
+         'active':active,'confirmed':confirmed}
+
+
 def cluster_candidates(rows,extra=None):
  extra=extra or {}; candidates=[]
  for name,members in CLUSTERS.items():
@@ -110,12 +121,8 @@ def cluster_candidates(rows,extra=None):
   floor=.25 if any(r['ticker'] in BROAD for r in valid) else (.6 if name=='crypto' else .4)
   triggered=[]
   for row in valid:
-   history=[abs(x) for x in row.get('previous_3_10m_returns_pct',[]) if x is not None]
-   adaptive=max(floor,2.5*median(history)) if history else floor
-   move=abs(row['return_10m_pct'])
-   active=row.get('volume_10m',0)>=(10000 if row['ticker'] in BROAD else 5000) and row.get('traded_minutes',0)>=6
-   confirmed=((row.get('volume_ratio_10m') or 0)>=1.8 or abs(row.get('relative_spy_pp') or 0)>=.2 or abs(row.get('acceleration_pp') or 0)>=.25)
-   if move>=adaptive and active and confirmed:triggered.append(row)
+   gates=selection_conditions(row,name,floor)
+   if gates['price_pass'] and gates['active'] and gates['confirmed']:triggered.append(row)
   if not triggered:continue
   positive=any(r['return_10m_pct']>=floor for r in valid)
   negative=any(r['return_10m_pct']<=-floor for r in valid)

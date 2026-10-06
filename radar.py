@@ -262,6 +262,8 @@ def publish(slot: str,report_path: Path):
         if marker in current:
             updated=current
         else:
+            from radar_explain import add_threshold_details
+            entry=add_threshold_details(entry,snapshot)
             recorded=datetime.now(TAIPEI).astimezone(TAIPEI)
             stamp=f"發布記錄時間：{recorded:%Y-%m-%d %H:%M:%S} 台北（寫入記錄；不代表遠端驗證完成時間）"
             entry=entry.rstrip()+'\n\n'+stamp+'\n'
@@ -310,7 +312,8 @@ def render_quiet_report(info,result):
     detail.extend('- 資料缺口：'+str(gap) for gap in result.get('gaps',[]))
     detail.extend('- 診斷錯誤：'+json.dumps(error,ensure_ascii=False) for error in result.get('errors',[]))
     detail.append('</details>')
-    return '\n'.join(lines+['']+detail)+'\n'
+    from radar_explain import add_threshold_details
+    return add_threshold_details('\n'.join(lines+['']+detail)+'\n',result)
 
 
 def tick(now=None):
