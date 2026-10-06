@@ -63,11 +63,84 @@ def completed_window(candles,window_end: datetime):
     return sorted(rows,key=lambda r:r['_parsed_time'])
 
 
+def _report_anchor(slot: str) -> str:
+    stamp=datetime.fromisoformat(slot)
+    if stamp.tzinfo is None: raise ValueError('slot must include timezone')
+    local=stamp.astimezone(TAIPEI)
+    return 'radar-'+local.strftime('%Y-%m-%d')+'t'+local.strftime('%H%M%S')+'0800'
+
+
+def _report_slot(slot: str, entry: str, trading_date: str) -> str:
+    import re
+    slug=_report_anchor(slot)
+    taipei=datetime.fromisoformat(slot).astimezone(TAIPEI); et=taipei.astimezone(ET)
+    body=entry.strip()
+    # Publisher-generated timestamp remains visible; a retry never regenerates it.
+    stamp=''
+    lines=body.splitlines()
+    if lines and lines[-1].startswith('發布記錄時間：'):
+        stamp=lines.pop(); body='\n'.join(lines).rstrip()
+    first=body.splitlines()[0] if body else ''
+    match=re.fullmatch(r'## \d{2}:\d{2} 台北／\d{2}:\d{2} ET｜(.+)',first)
+    if match and '<details>' in body:
+        caption=match.group(1).strip()[:80]
+        remainder=body[len(first):].lstrip('\n')
+    else:
+        caption='市場觀察'
+        summary='本輪市場觀察詳見查核明細。'
+        for line in body.splitlines():
+            clean=line.strip().replace('**','')
+            if clean.startswith('市場一句話：'):
+                summary=clean.removeprefix('市場一句話：').strip(); break
+            if clean.startswith('本輪資料不足'):
+                summary=clean; caption='資料不足，無法判定'; break
+            if clean.startswith('最近 10 分鐘沒有發現'):
+                summary=clean; caption='無可信熱點'; break
+        if caption=='市場觀察' and summary!='本輪市場觀察詳見查核明細。':caption=summary[:60].rstrip('。')
+        # Legacy evidence remains verbatim; only the repetitive generic title is removed.
+        lines=body.splitlines()
+        if lines and lines[0].lstrip('# ').strip() in ('🚨 10 分鐘市場熱點雷達','10 分鐘市場熱點雷達','美股即時市場熱點雷達'):
+            body='\n'.join(lines[1:]).strip()
+        if '<details>' not in body:body='<details><summary>本輪數據與查核明細</summary>\n\n'+body+'\n\n</details>'
+        remainder='市場一句話：'+summary+'\n\n'+body
+    header=f'<a id="{slug}"></a>\n## {taipei:%H:%M} 台北／{et:%H:%M} ET｜{caption}\n'
+    if stamp:header+=stamp+'\n'
+    return header+'\n'+remainder.rstrip()+'\n'
+
+
+def _decorate_daily(content: str, slot: str, trading_date: str) -> str:
+    import re
+    # Only managed metadata moves; every historical round's evidence stays untouched.
+    stamps=re.findall(r'<!-- radar-slot:([^>]+) -->',content)
+    latest=max(stamps,key=lambda x:datetime.fromisoformat(x)) if stamps else slot
+    slug=_report_anchor(latest)
+    start='<!-- radar-latest:start -->'; end='<!-- radar-latest:end -->'
+    if start in content and end in content:
+        a=content.index(start); b=content.index(end)+len(end)
+        content=content[:a]+content[b:]
+    method='<!-- radar-methodology -->'
+    if method in content:
+        content=re.sub(r'方法：[^\n]*\n<!-- radar-methodology -->\n?', '', content)
+    nav=f'{start}\n[跳至最新一輪](#{slug})\n{end}\n\n方法：[固定規則與資料口徑](../docs/report-methodology.md)\n{method}\n'
+    # Insert under the daily title, above all round blocks.
+    head,sep,tail=content.partition('\n')
+    result=head+'\n\n'+nav+'\n'+tail.lstrip('\n') if sep else content+'\n\n'+nav
+    if f'<a id="{slug}"></a>' not in result:
+        marker=f'<!-- radar-slot:{latest} -->'
+        result=result.replace(marker,marker+f'\n<a id="{slug}"></a>',1)
+    return result
+
+
 def append_slot(content: str,slot: str,entry: str)->str:
     marker=f'<!-- radar-slot:{slot} -->'
-    if marker in content:
-        return content
-    return content.rstrip()+f'\n\n{marker}\n{entry.rstrip()}\n'
+    if marker in content: return content
+    try: parsed=datetime.fromisoformat(slot)
+    except ValueError:
+        if ':' not in slot: raise
+        return content.rstrip()+f'\n\n{marker}\n{entry.rstrip()}\n'
+    trade_date=parsed.astimezone(ET).date().isoformat()
+    updated=content.rstrip()+f'\n\n{marker}\n{_report_slot(slot,entry,trade_date)}'
+    return _decorate_daily(updated,slot,trade_date)
 
 
 def _slot_key(slot):
@@ -185,7 +258,14 @@ def publish(slot: str,report_path: Path):
         if _git('symbolic-ref','--short','HEAD').decode().strip()!='main':
             raise ValueError('publisher requires the main branch')
         current=target.read_text(encoding='utf-8') if target.exists() else f'# {trade_date} 美股10分鐘熱點雷達\n'
-        updated=append_slot(current,slot,entry)
+        marker=f'<!-- radar-slot:{slot} -->'
+        if marker in current:
+            updated=current
+        else:
+            recorded=datetime.now(TAIPEI).astimezone(TAIPEI)
+            stamp=f"發布記錄時間：{recorded:%Y-%m-%d %H:%M:%S} 台北（寫入記錄；不代表遠端驗證完成時間）"
+            entry=entry.rstrip()+'\n\n'+stamp+'\n'
+            updated=append_slot(current,slot,entry)
         if updated!=current:
             _atomic_bytes(target,updated.encode('utf-8'))
         _git('add','--',relative)
@@ -202,40 +282,35 @@ def publish(slot: str,report_path: Path):
 
 def render_quiet_report(info,result):
     end=datetime.fromisoformat(info['slot']).astimezone(ET); start=end-timedelta(minutes=10)
-    lines=['🚨 10 分鐘市場熱點雷達',f"資料時間：{end.astimezone(TAIPEI):%Y-%m-%d %H:%M} 台北時間",
-           f'美東時間：{end:%Y-%m-%d %H:%M} ET',f'觀察窗口：{start:%H:%M}～{end:%H:%M} ET（完整分鐘線）',
-           f"市場狀態：{info.get('market_state','未確認')}",'',
-           '最近 10 分鐘沒有發現具有足夠可信度的市場熱點。','',
-           f"掃描範圍：{len(result.get('universe',TICKERS))} 檔 ETF；沒有通過綜合異常篩選的聚類。",
-           '此結論限於可用資料，不代表全市場完全平靜。','','Cross-Market Signals：']
+    insufficient=result.get('status') not in (None,'ok') or bool(result.get('errors'))
+    caption='資料不足，無法判定' if insufficient else '無可信熱點'
+    conclusion='本輪資料不足，無法可靠判定最近10分鐘熱點。' if insufficient else '最近 10 分鐘沒有發現具有足夠可信度的市場熱點。'
+    lines=[f"## {end.astimezone(TAIPEI):%H:%M} 台北／{end:%H:%M} ET｜{caption}",f"觀察窗口：{start:%H:%M}～{end:%H:%M} ET｜{info.get('market_state','未確認')}",'', '市場一句話：'+conclusion]
     signals=result.get('cross_signals',[])
-    lines.extend('- '+json.dumps(item,ensure_ascii=False) for item in signals)
-    if not signals:
-        lines.append('已取得資料未形成通過門檻的明顯跨市場訊號。')
-    for symbol,item in result.get('quotes',{}).items():
-        quote=item.get('quote',{})
-        label={'^VIX':'VIX','^TNX':'US10Y（美國10年期公債殖利率）'}.get(symbol,symbol)
-        if quote:
-            lines.append(f"- 報價採樣 {label}：{item.get('status')}；最新 {quote.get('price')} {quote.get('unit')}；來源時間 {quote.get('source_time')}；擷取 {quote.get('received_at')}；來源 {quote.get('source')}（延遲未確認）。")
-        else:
-            lines.append(f"- 報價採樣 {label}：{item.get('status')}；{item.get('reason','無有效快照')}。")
-    for change in result.get('quote_changes',{}).values():
-        lines.append('- 實際觀察報價變化：'+json.dumps(change,ensure_ascii=False))
-    rows=result.get('rows',[])
-    if isinstance(rows,dict):
-        rows=list(rows.values())
-    for row in rows:
-        ticker=row.get('ticker',row.get('symbol','?')); ret=row.get('return_10m_pct')
-        if ret is not None and ticker in ('SPY','QQQ','IWM','DIA'):
-            lines.append(f"- {ticker}：10分鐘 {ret:+.3f}%；窗口量 {row.get('volume_10m','未知')}；量比 {row.get('volume_ratio_10m','未知')}")
+    if signals:
+        lines.append('跨市場觀察：'+ '；'.join(str(item.get('summary',item.get('signal',item))) for item in signals[:3]))
     coverage=result.get('coverage',{})
-    if coverage:
-        lines.append(f"資料覆蓋：{coverage.get('usable_count',0)}/{coverage.get('requested_count',len(TICKERS))} 檔有足夠完整分鐘、實際成交及來源時效。")
-    if result.get('gaps'):
-        lines.extend(['','資料限制：']+['- '+str(g) for g in result['gaps']])
-    lines.extend(['','來源：本機 Futu OpenD 一分鐘歷史 K 線；VIX/US10Y 使用另列來源時間的查價快照配對（來源延遲未確認），未插入分鐘線或推算成交量。',
-                  f"擷取時間：{result.get('scan_timestamp','未知')}；無確認異常，因此未搜尋新聞催化劑。"])
-    return '\n'.join(lines)+'\n'
+    if coverage and coverage.get('usable_count',0)<coverage.get('requested_count',len(TICKERS)):
+        lines.append(f"覆蓋警示：可用 {coverage.get('usable_count',0)}/{coverage.get('requested_count',len(TICKERS))} 檔。")
+    detail=['<details><summary>本輪數據與查核明細</summary>','', '## 數據與訊號', 'Cross-Market Signals：']
+    detail.extend('- '+json.dumps(item,ensure_ascii=False) for item in signals)
+    if not signals: detail.append('- 無通過篩選的跨市場訊號。')
+    for symbol,item in result.get('quotes',{}).items():
+        quote=item.get('quote',{}); label={'^VIX':'VIX','^TNX':'US10Y'}.get(symbol,symbol)
+        detail.append(f"- {label}：{item.get('status')}；快照={quote or item.get('reason','無有效快照')}；來源時間={quote.get('source_time','未知')}；擷取={quote.get('received_at','未知')}；來源={quote.get('source','未知')}（延遲未確認）。")
+    for change in result.get('quote_changes',{}).values(): detail.append('- 實際報價變化：'+json.dumps(change,ensure_ascii=False))
+    rows=result.get('rows',[])
+    if isinstance(rows,dict): rows=list(rows.values())
+    for row in rows:
+        ticker=row.get('ticker',row.get('symbol','?'))
+        if row.get('return_10m_pct') is not None and ticker in ('SPY','QQQ','IWM','DIA'):
+            detail.append(f"- {ticker}：10分鐘 {row['return_10m_pct']:+.3f}%；窗口量 {row.get('volume_10m','未知')}；量比 {row.get('volume_ratio_10m','未知')}")
+    if coverage: detail.append(f"- 資料覆蓋：{coverage.get('usable_count',0)}/{coverage.get('requested_count',len(TICKERS))}。")
+    detail.extend(['','## 限制與查核','來源：本機 Futu OpenD 一分鐘歷史 K 線；VIX/US10Y 快照來源時間配對，延遲未確認。',f"掃描時間：{result.get('scan_timestamp','未知')}。"])
+    detail.extend('- 資料缺口：'+str(gap) for gap in result.get('gaps',[]))
+    detail.extend('- 診斷錯誤：'+json.dumps(error,ensure_ascii=False) for error in result.get('errors',[]))
+    detail.append('</details>')
+    return '\n'.join(lines+['']+detail)+'\n'
 
 
 def tick(now=None):
@@ -251,7 +326,6 @@ def tick(now=None):
     text=render_quiet_report(info,result)
     if result.get('status')!='ok' or result.get('errors'):
         text=text.replace('最近 10 分鐘沒有發現具有足夠可信度的市場熱點。','本輪資料不足，無法可靠判定最近10分鐘熱點。')
-        text+='\n資料阻擋：\n'+'\n'.join('- '+json.dumps(e,ensure_ascii=False) for e in result.get('errors',[]))+'\n'
     _atomic_bytes(path,text.encode('utf-8'))
     try:
         verified=publish(info['slot'],path)

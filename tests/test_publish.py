@@ -63,6 +63,25 @@ def test_publish_accepts_markdown_and_verifies_remote(publication_repo):
     assert content.count('<!-- radar-slot:')==1
 
 
+def test_publish_preserves_old_slot_blocks_and_adds_stable_latest_navigation(publication_repo):
+    root,remote,slot,report,_=publication_repo
+    target=root/'reports'/'2026-10-05.md'
+    old='''# 2026-10-05 美股10分鐘熱點雷達
+
+<!-- radar-slot:2026-10-05T21:10:00+08:00 -->
+## 21:10 台北／09:10 ET｜舊輪摘要
+舊內容逐字保留。
+'''
+    target.parent.mkdir(); target.write_text(old,encoding='utf-8')
+    radar.publish(slot,report)
+    content=target.read_text(encoding='utf-8')
+    assert old.split('\n\n',1)[1] in content
+    assert '<!-- radar-latest:start -->' in content and '<!-- radar-latest:end -->' in content
+    assert '[跳至最新一輪](#radar-2026-10-05t2120000800)' in content
+    assert '<a id="radar-2026-10-05t2120000800"></a>' in content
+    assert content.count('radar-methodology') == 1
+
+
 def test_publish_retry_does_not_duplicate_and_preserves_other_staging(publication_repo):
     root,remote,slot,report,_=publication_repo
     (root/'unrelated.txt').write_text('never publish me',encoding='utf-8')
@@ -130,7 +149,10 @@ def test_tick_quiet_publishes_without_model(tmp_path,monkeypatch,capsys):
     monkeypatch.setattr(radar,'publish',lambda slot,path:(calls.append((slot,path.read_text(encoding='utf-8'))) or {'verified':True,'commit':'abc','path':'reports/2026-10-05.md'}))
     assert radar.tick(datetime.fromisoformat('2026-10-05T21:20:00+08:00'))==0
     assert len(calls)==1
-    assert '最近 10 分鐘沒有發現具有足夠可信度的市場熱點。' in calls[0][1]
+    assert len(calls)==1 and '市場一句話：' in calls[0][1]
+    assert '觀察窗口：09:10～09:20 ET｜盤前' in calls[0][1]
+    assert '<details><summary>本輪數據與查核明細</summary>' in calls[0][1]
+    assert 'radar-methodology' not in calls[0][1]
     assert json.loads(capsys.readouterr().out)['wakeAgent'] is False
 
 
@@ -142,6 +164,7 @@ def test_tick_data_gaps_publish_blocked_report_without_claiming_calm(tmp_path,mo
     assert radar.tick(datetime.fromisoformat('2026-10-05T21:20:00+08:00'))==0
     assert '本輪資料不足，無法可靠判定最近10分鐘熱點。' in calls[0]
     assert '最近 10 分鐘沒有發現具有足夠可信度的市場熱點。' not in calls[0]
+    assert 'permission denied' not in calls[0].split('<details>',1)[0]
     assert 'permission denied' in calls[0]
     assert json.loads(capsys.readouterr().out)['wakeAgent'] is False
 
