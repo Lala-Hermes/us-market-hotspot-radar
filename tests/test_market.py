@@ -68,11 +68,11 @@ def test_constituent_sampled_breadth_uses_valid_names_only():
     assert found[0]['sampled_breadth']['valid'] == 1
     assert found[0]['sampled_breadth']['denominator'] == 4
 
-def test_cross_signals_require_valid_fresh_rows_and_note_unsupported_gaps():
+def test_cross_signals_require_valid_fresh_rows_without_retired_source_gaps():
     rows = {'SPY': bars('SPY', [0.0]*30+[0.05]*10), 'QQQ': bars('QQQ', [0.0]*30+[0.30]*10), 'IWM': bars('IWM', [0.0]*30+[0.4]*10), 'TLT': bars('TLT', [0.0]*30+[-0.3]*10), 'GLD': bars('GLD', [0.0]*30+[0.2]*10), 'IBIT': bars('IBIT', [0.0]*30+[-0.7]*10)}
     sig, gaps = cross_signals(rows)
     assert any(s['type'] == 'index_divergence' for s in sig)
-    assert any('VIX' in g for g in gaps)
+    assert gaps == []
     rows['QQQ']['status'] = 'insufficient'
     sig, _ = cross_signals(rows)
     assert not any(s.get('ticker') == 'QQQ' for s in sig)

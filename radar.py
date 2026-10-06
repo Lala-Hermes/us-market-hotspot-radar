@@ -308,7 +308,7 @@ def render_quiet_report(info,result):
         if row.get('return_10m_pct') is not None and ticker in ('SPY','QQQ','IWM','DIA'):
             detail.append(f"- {ticker}：10分鐘 {row['return_10m_pct']:+.3f}%；窗口量 {row.get('volume_10m','未知')}；量比 {row.get('volume_ratio_10m','未知')}")
     if coverage: detail.append(f"- 資料覆蓋：{coverage.get('usable_count',0)}/{coverage.get('requested_count',len(TICKERS))}。")
-    detail.extend(['','## 限制與查核','來源：本機 Futu OpenD 一分鐘歷史 K 線；VIX/US10Y 快照來源時間配對，延遲未確認。',f"掃描時間：{result.get('scan_timestamp','未知')}。"])
+    detail.extend(['','## 限制與查核','來源：本機 Futu OpenD 已完成一分鐘 K 線；供應商延遲未獨立確認。固定範圍與樣本限制見每日方法連結。',f"掃描時間：{result.get('scan_timestamp','未知')}。"])
     detail.extend('- 資料缺口：'+str(gap) for gap in result.get('gaps',[]))
     detail.extend('- 診斷錯誤：'+json.dumps(error,ensure_ascii=False) for error in result.get('errors',[]))
     detail.append('</details>')

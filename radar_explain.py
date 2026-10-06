@@ -50,6 +50,16 @@ def threshold_details(snapshot):
             cells=[number(row.get('return_10m_pct'),'%'),number(row.get('relative_spy_pp')),number(row.get('relative_qqq_pp')),f"{gates['threshold']:.5f}%",'通過' if gates['price_pass'] else '未通過','；'.join(reasons)]
         lines.append('|'+ticker+'|'+'|'.join(cells)+'|')
     lines.extend(['','NA 表示未取得有效資料，不是零；未入選不代表全天弱勢或沒有新聞。'])
+    btc=snapshot.get('btc')
+    if btc:
+        lines.extend(['','### BTC/USD 獨立跨資產觀察（非IBIT）'])
+        if btc.get('status')=='ok':
+            volume=btc.get('volume_10m')
+            amount='NA' if volume is None else f'{volume:.5f} BTC'
+            lines.append(f"Futu現貨幣對10分鐘 {number(btc.get('return_10m_pct'),'%')}；窗口量 {amount}；量比 {number(btc.get('volume_ratio_10m'))}；完成分鐘 {btc.get('completed_bars','NA')}/10、成交分鐘 {btc.get('traded_minutes','NA')}/10。")
+            lines.append(f"來源時間由 unix epoch 轉換；最後完成分鐘 {btc.get('last_completed_bar','未知')}。不計入29檔ETF覆蓋率，不代表全球Bitcoin成交量；供應商延遲未獨立確認。")
+        else:
+            lines.append('本輪資料不足／掃描受阻：'+btc.get('reason','未知原因')+'；未納入訊號。')
     return '\n'.join(lines)+'\n'
 
 

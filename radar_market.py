@@ -7,6 +7,7 @@ from statistics import median
 import time
 from zoneinfo import ZoneInfo
 from pathlib import Path
+from radar_crypto import collect_btc, btc_cross_signals
 
 ET=ZoneInfo('America/New_York')
 TICKERS='SPY QQQ IWM DIA XLK XLF XLE XLV XLY XLP XLI XLB XLU XLRE XLC SOXX SMH IGV XBI IBB KRE XOP OIH ITA ARKK IBIT GLD TLT USO'.split()
@@ -29,7 +30,7 @@ CONSTITUENTS={
  'industrials':['GE','CAT','RTX'],'materials':['LIN','FCX','NEM'],
  'utilities':['NEE','SO','DUK'],'real_estate':['PLD','AMT','EQIX'],
  'communication_services':['META','GOOGL','NFLX'],'aerospace_defense':['RTX','LMT','NOC']}
-UNSUPPORTED=['VIX（quote sampling未提供有效資料）','美國公債殖利率（quote sampling未提供有效資料）','美元指數','原油現貨／期貨','Bitcoin現貨','選擇權活動']
+UNSUPPORTED=[]  # Retired sources are documented once, not polled or listed as live gaps.
 
 
 def _as_et(value):
@@ -279,7 +280,11 @@ def collect(window_end,info):
     report['gaps'].append(f'代表股{ticker}取樣失敗：{type(exc).__name__}: {exc}')
   report['candidates']=cluster_candidates(report['rows'],report['constituents'])
   report['cross_signals'],unsupported=cross_signals(report['rows']); report['gaps'].extend(unsupported)
-  report['gaps'].append('成分股廣度是最多30檔代表股取樣，並非完整ETF成分股；未確認異常前不調查新聞。')
+  report['btc']=collect_btc(ctx,end,budget)
+  report['cross_signals'].extend(btc_cross_signals(report['btc']))
+  if report['btc'].get('status')!='ok':
+   report['gaps'].append('BTC/USD本輪資料不足：'+report['btc'].get('reason','未知'))
+   report['status']='partial'
   report['coverage']={'requested_count':len(TICKERS),'returned_count':len(report['rows']),
     'usable_count':sum(_valid(r) for r in report['rows'].values()),
     'major_valid_count':sum(_valid(report['rows'].get(t)) for t in BROAD),
@@ -289,17 +294,6 @@ def collect(window_end,info):
   report['status']='blocked'; report['errors'].append({'error':f'Futu/OpenD unavailable: {type(exc).__name__}: {exc}'})
  finally:
   if ctx is not None:ctx.close()
- observations,changes=sample_market_quotes(Path(__file__).resolve().parent/'.state'/'quotes.sqlite',
-  diagnostic=bool(info.get('diagnostic')))
- report['quotes']=observations
- report['quote_changes']=changes
- if '^VIX' in changes:
-  report['gaps']=[g for g in report['gaps'] if 'VIX' not in g]
- if '^TNX' in changes:
-  report['gaps']=[g for g in report['gaps'] if '公債殖利率' not in g]
- report['cross_signals'].extend(quote_cross_signals(changes))
- for symbol,item in observations.items():
-  if item.get('status')!='observed':
-   label='VIX' if symbol=='^VIX' else '美國10年期公債殖利率'
-   report['gaps'].append(f'{label}報價狀態：{item.get("status")}；{item.get("reason", "需等待兩筆有效且同源觀察") }')
+ # Yahoo VIX/US10Y sampling is retired: source timestamps stayed delayed.
+ # Keep legacy utilities for reading/testing historical evidence, never poll here.
  return report
