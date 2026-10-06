@@ -321,6 +321,15 @@ def tick(now=None):
     if info=='IDLE':
         print(json.dumps({'wakeAgent':False},separators=(',',':'))); return 0
     result=scan(info)
+    if result.get('status') in ('ok','partial'):
+        news_input=STATE/('news-input-'+_slot_key(info['slot'])+'.json')
+        news_output=STATE/('news-output-'+_slot_key(info['slot'])+'.json')
+        print(json.dumps({'wakeAgent':True,'slot':info['slot'],'snapshot_path':result['snapshot_path'],
+                          'status':result.get('status'),'candidate_count':len(result.get('candidates',[])),
+                          'errors':result.get('errors',[]),'news_required':True,
+                          'news_window_start':info['window_start'],'news_window_end':info['window_end'],
+                          'news_input_path':str(news_input.resolve()),'news_output_path':str(news_output.resolve())},
+                         ensure_ascii=False,separators=(',',':'))); return 0
     if result.get('candidates') or result.get('cross_signals'):
         print(json.dumps({'wakeAgent':True,'slot':info['slot'],'snapshot_path':result['snapshot_path'],
                           'status':result.get('status'),'candidate_count':len(result.get('candidates',[])),

@@ -137,23 +137,22 @@ def test_early_close_and_winter_schedule():
     result=radar.gate(datetime.fromisoformat('2026-11-28T02:00:15+08:00'))
     assert result['trading_date']=='2026-11-27'
     assert radar.gate(datetime.fromisoformat('2026-11-28T02:10:00+08:00'))=='IDLE'
-    result=radar.gate(datetime.fromisoformat('2026-12-01T21:20:00+08:00'))
+    result=radar.gate(datetime.fromisoformat('2026-12-01T21:40:00+08:00'))
     assert datetime.fromisoformat(result['window_end']).astimezone(radar.ET).hour==8
     assert isinstance(radar.gate(datetime.fromisoformat('2026-12-02T05:00:15+08:00')),dict)
 
 
-def test_tick_quiet_publishes_without_model(tmp_path,monkeypatch,capsys):
+def test_tick_quiet_wakes_for_macro_news(tmp_path,monkeypatch,capsys):
     monkeypatch.setattr(radar,'STATE',tmp_path)
-    monkeypatch.setattr(radar,'scan',lambda *a,**k:{'status':'ok','errors':[],'candidates':[],'rows':[],'cross_signals':[],'gaps':['options unavailable']})
+    monkeypatch.setattr(radar,'scan',lambda *a,**k:{'status':'ok','snapshot_path':'exact.json','errors':[],'candidates':[],'rows':[],'cross_signals':[],'gaps':[]})
     calls=[]
-    monkeypatch.setattr(radar,'publish',lambda slot,path:(calls.append((slot,path.read_text(encoding='utf-8'))) or {'verified':True,'commit':'abc','path':'reports/2026-10-05.md'}))
-    assert radar.tick(datetime.fromisoformat('2026-10-05T21:20:00+08:00'))==0
-    assert len(calls)==1
-    assert len(calls)==1 and '市場一句話：' in calls[0][1]
-    assert '觀察窗口：09:10～09:20 ET｜盤前' in calls[0][1]
-    assert '<details><summary>本輪數據與查核明細</summary>' in calls[0][1]
-    assert 'radar-methodology' not in calls[0][1]
-    assert json.loads(capsys.readouterr().out)['wakeAgent'] is False
+    monkeypatch.setattr(radar,'publish',lambda *a:calls.append(a))
+    assert radar.tick(datetime.fromisoformat('2026-10-05T21:40:00+08:00'))==0
+    assert calls==[]
+    payload=json.loads(capsys.readouterr().out)
+    assert payload['wakeAgent'] is True and payload['news_required'] is True
+    assert payload['snapshot_path']=='exact.json'
+    assert payload['news_window_end']=='2026-10-05T21:40:00+08:00'
 
 
 def test_tick_data_gaps_publish_blocked_report_without_claiming_calm(tmp_path,monkeypatch,capsys):

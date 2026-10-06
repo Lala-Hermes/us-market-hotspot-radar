@@ -7,8 +7,7 @@
 - 本機 repo：`C:/Users/vivat/us-market-hotspot-radar`。
 - Python：`C:/Users/vivat/us-market-hotspot-radar/.venv/Scripts/python.exe`。
 - Pre-run `radar.py tick` 已完成日曆 gate／市場優先掃描，輸出 slot、window、ET交易日、不可變 snapshot 路徑與資料狀態。先讀回該精確 snapshot，不重跑全宇宙，不改窗口、不用事後現在時間取代它。
-- 若 wakeAgent=false / inactive，無需研究或發布，直接結束。tick 會自動發布沒有候選的簡短報告或明確的資料受阻報告，勿重複。存在明顯cross_signals而候選為空時，仍按實測跨市場異動調查，不強迫捏造個股熱點。
-- 若掃描受阻或重大資料不足，產生清楚的受阻報告，不稱「市場平靜」或硬湊熱點；不得把 API 錯誤當作無事件。
+- 若 wakeAgent=false / inactive，無需研究或發布，直接結束。只要 market scan status 為 ok 或 partial，tick 都會 wakeAgent=true 並提供 news_required、news_window_start/end、news_input_path、news_output_path；即使沒有候選／cross_signals或市場安靜，也必須完成新聞查核後才撰寫報告。若掃描受阻或重大資料不足，沿用受阻報告路徑；不把 API 錯誤當成無事件。
 - 診斷 snapshot 不能發布正式報告。禁止回填捏造歷史即時報告。
 - 四大指數ETF + 11板塊 + 14主題／跨市場代理（含獨立原油代理聚類的USO ETF）合計29標的是最低一分鐘線掃描範圍。USO不是原油現貨。完成率依真正返回的資料計算，空序列、0成交、陳舊資料須披露。
 - 另取Futu `CC.BTCUSD` 現貨幣對同窗口一分鐘線，使用來源protobuf的unix epoch而非猜測顯示時區；資料保存於snapshot的`btc`，與29檔ETF覆蓋率分離，量單位為BTC不是股數，不等於全球Bitcoin成交量。僅完整已完成10分鐘、成交與時效合格時納入；|10分鐘變化|≥0.6%作跨資產觀察訊號。
@@ -19,7 +18,7 @@
 1. 先讀指數、全部板塊及主題窗口變化，查加速、相對SPY/QQQ、10分鐘量vs前30分鐘基準、區間波動、同產業樣本同步。全天漲跌或全天成交量不得冒充最近10分鐘。
 2. 聚合同事件的ETF與股票；同一半導體異動不能拆成NVDA、AMD、SOXX三個熱點。只有實測成分股才列leader/laggard；sampled breadth須標示樣本分母，不能宣稱完整ETF廣度。
 3. 0–100分是注意力排序，不是報酬預測；資料不足要降分。不強迫湊滿3個，最多10個；不能忽略空方、risk-off或相對弱勢只報多方。
-4. 只在價格異動確認後查催化劑。一次並行搜索最多前三個價格聚類，避免大量逐標的新聞。查窗口終點前約30–60分鐘的 Reuters、Bloomberg、CNBC、SEC、公司公告/IR、Fed/Treasury/BLS/BEA等可靠來源；每個使用的事件打開來源確認內容與真正發布時間（含時區）。有需要才扩展候选，不必为未确认原因无限搜索。
+4. 每個ok/partial輪次（包括安靜市場、零候選）均查宏觀快訊：使用瀏覽器各查 Jin10 https://www.jin10.com 與 Futu https://news.futunn.com/main/live，時間窗口固定為snapshot的嚴格 (window_start,window_end]，另分列前60分鐘背景。來源頁面以外可對最多前三個價格聚類做新聞匹配。只讀頁面可見／公開記錄，不用搜尋片段代替核實；每來源最多一次重試，合理控制總時間。必須取得原始日期及時區證據；禁止把只有時分的時間逕自指定為今天。Futu可從公開flashList白名單欄位讀取id/time/dateStr/timeStr/content/detailUrl/sourceId，time為Unix秒並轉aware UTC；不得輸出整份__NUXT__狀態或讀tokens。Jin10只採可見公開DOM列：以頁面明示東八區、逐條核對data-flash-date-start、可見.item-time及.flash-text.innerText；hidden/login-gated列不得讀取或推定，這類限制記錄source partial/login_required，不宣稱完整窗口覆蓋。若來源無法開啟或驗證，來源狀態記blocked/partial及原因；查到零則是ok+零條，兩者不可混淆。禁止繞過登入／付費牆、批量複製或整段轉載快訊。這是公開個人研究線索查找，不承諾API或商用自動供稿權；需要授權API時標為 unavailable。每條原始記錄須存入tick提供的news_input_path，欄位為source,url,text,published_at(aware ISO),received_at(aware ISO),timestamp_precision；不得虛構時間或因果。包裝格式為{"items":[...],"sources":[{"source":"...","status":"ok|partial|blocked","received_at":"...","url":"...","reason":"..."}]};保留來源時區／原始時間查證說明於source metadata。執行 `C:/Users/vivat/us-market-hotspot-radar/.venv/Scripts/python.exe C:/Users/vivat/us-market-hotspot-radar/radar_news.py --snapshot '<精確snapshot>' --input '<news_input_path>' --output '<news_output_path>'`，報告只依正規化的window_items/context_items及來源狀態。同一UTC分鐘的跨站正規化相同文字只算一條（包含背景）、保留provenance但不可當獨立印證；文字近似或不同發布分鐘暫不自動合併，也不可逕當独立印證。摘要以自行撰寫短句、最多3–5條並附連結與真實發布/取得時間；不可整段重製版權快訊。
 5. 搜尋結果片段不是已核實來源。舊聞、時間未知消息、單一社群傳言不得當催化劑。相關新聞+上漲不等於因果：核對時間、內容、板塊反應、替代解釋。確認不了寫「未確認（Unconfirmed）」。
 6. Confidence：High=明確事件且時點/反應高度吻合；Medium=合理相關但因果未證明；Low=市場推測/社群；Unconfirmed=無可靠原因。不要使用「因為」除非有強證據。
 7. 選擇權只在確有候選且有能力時檢查相關標的，按精確ET窗口篩fill_time，最多少量樣本。同時間同張數多腿先分組，OI/BUY/SELL/PCR不證明開倉或意圖，缺資料明說。資料取不到時不必耗時安裝新來源，不造數據。
