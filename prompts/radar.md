@@ -13,12 +13,22 @@
 - 另取Futu `CC.BTCUSD` 現貨幣對同窗口一分鐘線，使用來源protobuf的unix epoch而非猜測顯示時區；資料保存於snapshot的`btc`，與29檔ETF覆蓋率分離，量單位為BTC不是股數，不等於全球Bitcoin成交量。僅完整已完成10分鐘、成交與時效合格時納入；|10分鐘變化|≥0.6%作跨資產觀察訊號。
 - VIX、10年期殖利率、美元指數及直接原油現貨／期貨已退出本雷達來源範圍；不再輪詢Yahoo或每輪列固定缺口。範圍與樣本限制只見共同方法文件；本輪已接通ETF／BTC的失效、陳舊或缺線仍須披露，不能當成市場平靜。
 
-## 市場優先：Anomaly → Cluster → Catalyst → Verification → Ranking
+## 新聞優先：10分鐘快訊 → 事件分類 → 行情核對
+
+先讀snapshot只為固定slot/window和確認資料可用，不先以價格候選篩選新聞。研究順序改為：先取得嚴格(window_start,window_end]內的金十MCP快訊並正規化，再按事件內容分類，最後核對同窗口行情。不能因價格未達門檻而刪除新聞；沒有價格候選也要呈現重要消息。
+
+- 主要來源是已配置的jin10 MCP `list_flash`，首次參數為{}，後續僅使用返回的`next_cursor`；每輪最多3頁、總60秒，遇到覆蓋前60分鐘背景起點或has_more=false即停止；只有時間有序且已涵蓋指定窗口與背景起點才標完整。has_more=false但尚未到背景起點仍標partial，不把來源耗盡誤認為完整歷史覆蓋。`search_flash`只供已知事件補查，不用關鍵詞搜尋代替全窗口消息。列表未取全必須標partial，不把第一頁當完整市場覆蓋。
+- 若本次工具列表尚未暴露jin10，不重新登入或等待重啟：用已驗證的Hermes MCP runtime adapter：`C:/Users/vivat/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe C:/Users/vivat/us-market-hotspot-radar/radar_jin10.py --snapshot '<精確snapshot>' --output '<news_input_path>'`，terminal timeout=75。它從目前HERMES_HOME讀取現有配置，不要讀出、抄寫或列印token。adapter產生items和source status後，再用既有radar_news.py正規化。MCP原始`time`含日期與+08:00，保存發布時間、取得時間、url；不要把取得時點当發布時間。
+- 語意分類為「整體市場／板塊／個股／跨資產／不明或無直接美股關聯」，允許一則事件影響多板塊；需寫出分類理由，不用關鍵字命中就斷言影響。Fed、經濟數據與廣泛政策可列整體市場；產業政策、供需或公司事件依傳導機制映射板塊與相關ETF。只在有明確關係時列相關公司，不推測未知ticker。
+- 每個選取的事件列：發布時間、原創短摘要、事件範圍、可能相關板塊/ETF、同窗口已觀測反應、信心與反證。反應狀態分「有同窗口反應但因果未確認／未出現價格反應／行情不足／來源未核實」。新聞重要性與原價格熱點分數分開，不用新聞把未達門檻標的升格成已確認價格熱點。
+- 若消息發布在窗口後段，明示反應觀察時間短；消息公布前已有行情變動不能由它解釋。背景消息另列，不冒充本輪新催化劑。仍保留純價格異常但查不到消息的觀察，不因新聞列表安靜而忽略行情。
+
+## 行情核對：獨立價格異常與消息反應
 
 1. 先讀指數、全部板塊及主題窗口變化，查加速、相對SPY/QQQ、10分鐘量vs前30分鐘基準、區間波動、同產業樣本同步。全天漲跌或全天成交量不得冒充最近10分鐘。
 2. 聚合同事件的ETF與股票；同一半導體異動不能拆成NVDA、AMD、SOXX三個熱點。只有實測成分股才列leader/laggard；sampled breadth須標示樣本分母，不能宣稱完整ETF廣度。
 3. 0–100分是注意力排序，不是報酬預測；資料不足要降分。不強迫湊滿3個，最多10個；不能忽略空方、risk-off或相對弱勢只報多方。
-4. 每個ok/partial輪次（包括安靜市場、零候選）均查宏觀快訊：使用瀏覽器各查 Jin10 https://www.jin10.com 與 Futu https://news.futunn.com/main/live，時間窗口固定為snapshot的嚴格 (window_start,window_end]，另分列前60分鐘背景。來源頁面以外可對最多前三個價格聚類做新聞匹配。只讀頁面可見／公開記錄，不用搜尋片段代替核實。新聞查核總預算120秒（兩站、個股補查和備援合計，從第一次查核開始計時）；每來源只嘗試一次，不重試。每個browser_exec明確設定timeout_s=30，禁止使用預設300秒或420秒長等待；不要sleep/poll等待網頁復原。遇到profile locked、逾時、工具不支援、登入／驗證要求即將該來源標blocked/partial並繼續；若是共用瀏覽器profile locked，另一站不要再啟動同一受阻瀏覽器。使用者已放棄登入：禁止登入、呼叫vault、等待使用者、關閉使用者瀏覽器、改全域browser設定或繞過驗證。不得為新聞故障安裝工具或啟動修復流程。預算耗盡即停止新聞查找，將真實失敗與已取得證據寫入news_input並正規化；兩站均失敗也要以items=[]及blocked狀態繼續。新聞受阻仍須發布行情與限制報告，催化劑寫Unconfirmed，不等新聞成功才commit/push。必須取得原始日期及時區證據；禁止把只有時分的時間逕自指定為今天。Futu可從公開flashList白名單欄位讀取id/time/dateStr/timeStr/content/detailUrl/sourceId，time為Unix秒並轉aware UTC；不得輸出整份__NUXT__狀態或讀tokens。Jin10只採可見公開DOM列：以頁面明示東八區、逐條核對data-flash-date-start、可見.item-time及.flash-text.innerText；hidden/login-gated列不得讀取或推定，這類限制記錄source partial/login_required，不宣稱完整窗口覆蓋。若來源無法開啟或驗證，來源狀態記blocked/partial及原因；查到零則是ok+零條，兩者不可混淆。禁止繞過登入／付費牆、批量複製或整段轉載快訊。這是公開個人研究線索查找，不承諾API或商用自動供稿權；需要授權API時標為 unavailable。每條原始記錄須存入tick提供的news_input_path，欄位為source,url,text,published_at(aware ISO),received_at(aware ISO),timestamp_precision；不得虛構時間或因果。包裝格式為{"items":[...],"sources":[{"source":"...","status":"ok|partial|blocked","received_at":"...","url":"...","reason":"..."}]};保留來源時區／原始時間查證說明於source metadata。執行 `C:/Users/vivat/us-market-hotspot-radar/.venv/Scripts/python.exe C:/Users/vivat/us-market-hotspot-radar/radar_news.py --snapshot '<精確snapshot>' --input '<news_input_path>' --output '<news_output_path>'`，報告只依正規化的window_items/context_items及來源狀態。同一UTC分鐘的跨站正規化相同文字只算一條（包含背景）、保留provenance但不可當獨立印證；文字近似或不同發布分鐘暫不自動合併，也不可逕當独立印證。摘要以自行撰寫短句、最多3–5條並附連結與真實發布/取得時間；不可整段重製版權快訊。
+4. 每個ok/partial輪次（包括安靜市場、零候選）先完成上方金十MCP快訊流程；富途 https://news.futunn.com/main/live 為可用時的交叉查核，金十 https://www.jin10.com 僅為MCP失敗時的公開備援，不要求每輪都開兩個網站。時間窗口固定為snapshot的嚴格 (window_start,window_end]，另分列前60分鐘背景。來源頁面以外可對最多前三個價格聚類做新聞匹配。只讀頁面可見／公開記錄，不用搜尋片段代替核實。新聞查核總預算120秒（兩站、個股補查和備援合計，從第一次查核開始計時）；每來源只嘗試一次，不重試。每個browser_exec明確設定timeout_s=30，禁止使用預設300秒或420秒長等待；不要sleep/poll等待網頁復原。遇到profile locked、逾時、工具不支援、登入／驗證要求即將該來源標blocked/partial並繼續；若是共用瀏覽器profile locked，另一站不要再啟動同一受阻瀏覽器。使用者已放棄登入：禁止登入、呼叫vault、等待使用者、關閉使用者瀏覽器、改全域browser設定或繞過驗證。不得為新聞故障安裝工具或啟動修復流程。預算耗盡即停止新聞查找，將真實失敗與已取得證據寫入news_input並正規化；兩站均失敗也要以items=[]及blocked狀態繼續。新聞受阻仍須發布行情與限制報告，催化劑寫Unconfirmed，不等新聞成功才commit/push。必須取得原始日期及時區證據；禁止把只有時分的時間逕自指定為今天。Futu可從公開flashList白名單欄位讀取id/time/dateStr/timeStr/content/detailUrl/sourceId，time為Unix秒並轉aware UTC；不得輸出整份__NUXT__狀態或讀tokens。Jin10網頁備援只採可見公開DOM列：以頁面明示東八區、逐條核對data-flash-date-start、可見.item-time及.flash-text.innerText；hidden/login-gated列不得讀取或推定，這類限制記錄source partial/login_required，不宣稱完整窗口覆蓋。若來源無法開啟或驗證，來源狀態記blocked/partial及原因；查到零則是ok+零條，兩者不可混淆。禁止繞過登入／付費牆、批量複製或整段轉載快訊。這是公開個人研究線索查找，不承諾API或商用自動供稿權；需要授權API時標為 unavailable。每條原始記錄須存入tick提供的news_input_path，欄位為source,url,text,published_at(aware ISO),received_at(aware ISO),timestamp_precision；不得虛構時間或因果。包裝格式為{"items":[...],"sources":[{"source":"...","status":"ok|partial|blocked","received_at":"...","url":"...","reason":"..."}]};保留來源時區／原始時間查證說明於source metadata。執行 `C:/Users/vivat/us-market-hotspot-radar/.venv/Scripts/python.exe C:/Users/vivat/us-market-hotspot-radar/radar_news.py --snapshot '<精確snapshot>' --input '<news_input_path>' --output '<news_output_path>'`，報告只依正規化的window_items/context_items及來源狀態。同一UTC分鐘的跨站正規化相同文字只算一條（包含背景）、保留provenance但不可當獨立印證；文字近似或不同發布分鐘暫不自動合併，也不可逕當独立印證。摘要以自行撰寫短句、最多3–5條並附連結與真實發布/取得時間；不可整段重製版權快訊。
 5. 搜尋結果片段不是已核實來源。舊聞、時間未知消息、單一社群傳言不得當催化劑。相關新聞+上漲不等於因果：核對時間、內容、板塊反應、替代解釋。確認不了寫「未確認（Unconfirmed）」。
 6. Confidence：High=明確事件且時點/反應高度吻合；Medium=合理相關但因果未證明；Low=市場推測/社群；Unconfirmed=無可靠原因。不要使用「因為」除非有強證據。
 7. 選擇權只在確有候選且有能力時檢查相關標的，按精確ET窗口篩fill_time，最多少量樣本。同時間同張數多腿先分組，OI/BUY/SELL/PCR不證明開倉或意圖，缺資料明說。資料取不到時不必耗時安裝新來源，不造數據。
@@ -28,7 +38,7 @@
 
 - 每個美東交易日一份報告；共同方法文件：`docs/report-methodology.md`，每日只連結一次。
 - 最新輪導航置於日報頂端，使用明確且穩定的 HTML anchor；每輪使用唯一 H2：`HH:MM 台北／HH:MM ET｜事件摘要`。
-- 首屏限簡潔市場一句話、方向/分數/代表窗口數據/廣度/催化劑信心與重要反證；不輸出全 ETF 表或無事填充。
+- 首屏先給最近10分鐘重要事件與其整體市場／板塊分類（最多3–5則），再給簡潔市場反應、價格熱點方向/分數/代表窗口數據/廣度/催化劑信心與重要反證；不輸出全ETF表或無事填充。重要消息尚無價格反應可列「消息觀察」，不可因門檻未通過刪除。
 - Publisher會依本輪正式snapshot自動在折疊明細加入「固定關注與動態門檻」表，固定SOXX／SMH、IGV並涵蓋其餘掃描標的。不要自行生成該表或`radar-threshold-details`標記，避免與實際篩選規則不一致；未入選不代表未掃描或全天弱勢。
 - 每輪自行折疊為 GitHub `<details><summary>本輪數據與查核明細</summary>`，保留完整指標、來源及其實際發布/來源時間、資料缺口和錯誤；原始 JSON 不放首屏。
 - 清楚區分觀察時間與發布記錄時間。錯誤/缺口置入該輪明細；資料不足不得稱市場平靜。
